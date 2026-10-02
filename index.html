@@ -87,7 +87,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v2</span><span class="count" id="count"></span></div>
+    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v3</span><span class="count" id="count"></span></div>
     <label class="fbtn" id="addBtn" hidden>+ Agregar<input type="file" id="add" accept="image/*" multiple></label>
     <label class="fbtn main" id="pickBtn">Elegir fotos<input type="file" id="pick" accept="image/*" multiple></label>
   </div>
@@ -135,7 +135,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=2;
+const VERSION=3;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -467,6 +467,9 @@ function download(blob,name){
 $('bSave').onclick=async()=>{
   const list=photos.filter(p=>p.inc&&p.reg); if(!list.length) return;
   let ok=0;
+  // sello de la guardada (díahoraminutosegundo) para que cada guardada tenga nombres nuevos
+  const t=new Date(), z=n=>String(n).padStart(2,'0');
+  const run=z(t.getDate())+z(t.getHours())+z(t.getMinutes())+z(t.getSeconds());
   for(let k=0;k<list.length;k++){
     const ph=list[k];
     busy('Guardando foto '+(k+1)+' de '+list.length+'…'); await frame();
@@ -474,7 +477,7 @@ $('bSave').onclick=async()=>{
       const base=await toCanvas(ph.file,SAVE_MAX);
       const out=compose(base,ph.reg,P);
       let blob=await toBlob(out); blob=await withExif(blob,ph.file);
-      const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr.jpg';
+      const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr_'+run+'_'+(k+1)+'.jpg';
       download(blob,nm); ok++;
       await sleep(700);
     }catch(e){}
