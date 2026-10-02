@@ -90,7 +90,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v4</span><span class="count" id="count"></span></div>
+    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v5</span><span class="count" id="count"></span></div>
     <label class="fbtn" id="addBtn" hidden>+ Agregar<input type="file" id="add" accept="image/*" multiple></label>
     <label class="fbtn main" id="pickBtn">Elegir fotos<input type="file" id="pick" accept="image/*" multiple></label>
   </div>
@@ -126,7 +126,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
     <div class="pane" id="pF"><div class="chips" id="chips"></div><p class="note">El filtro se aplica igual a todas las fotos.</p></div>
     <div class="pane" id="pA" hidden></div>
     <div class="pane" id="pG" hidden>
-      <p class="srv off" id="srv">Revisando Termux…</p>
+      <p class="srv off" id="srv">Termux: se revisa al guardar</p>
       <p class="sum" id="sum"></p>
       <button class="fbtn main" id="bSave" style="width:100%;padding:12px" disabled>Guardar</button>
       <p class="warn" id="sWarn" hidden></p>
@@ -140,7 +140,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=4;
+const VERSION=5;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -426,7 +426,6 @@ function applyDetailOnly(){clearTimeout(ad);ad=setTimeout(()=>{if(work&&cur>=0){
 function applyFilter(){applyDetailOnly();refreshAll();}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(o=>{const on=o===t;o.setAttribute('aria-selected',on);$(o.dataset.p).hidden=!on;});
-  if(t.dataset.p==='pG') checkSrv();
 });
 
 /* ---------- guardar ---------- */
@@ -513,7 +512,7 @@ $('bSave').onclick=async()=>{
   toast(ok?('Guardadas: '+partes.join(' y ')+'.'):'No se pudo guardar ninguna foto.',5000);
 };
 
-buildChips(); buildSliders(); updateSummary(); checkSrv();
+buildChips(); buildSliders(); updateSummary();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
 })();
 </script>
