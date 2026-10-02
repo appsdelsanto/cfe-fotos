@@ -87,8 +87,9 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v1</span><span class="count" id="count"></span></div>
-    <label class="fbtn main">Elegir fotos<input type="file" id="pick" accept="image/*" multiple></label>
+    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v2</span><span class="count" id="count"></span></div>
+    <label class="fbtn" id="addBtn" hidden>+ Agregar<input type="file" id="add" accept="image/*" multiple></label>
+    <label class="fbtn main" id="pickBtn">Elegir fotos<input type="file" id="pick" accept="image/*" multiple></label>
   </div>
 
   <div class="stage" id="stage">
@@ -134,7 +135,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=1;
+const VERSION=2;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -225,28 +226,35 @@ function compose(base,reg,p){
   return out;
 }
 
-/* ---------- elegir fotos ---------- */
-const pick=$('pick');
-pick.addEventListener('change',async()=>{
-  const files=[...(pick.files||[])]; setTimeout(()=>{pick.value='';},0);
+/* ---------- elegir y agregar fotos ---------- */
+async function loadFiles(files,append){
   if(!files.length) return;
-  if(photos.length && !confirm('¿Reemplazar las '+photos.length+' fotos actuales por las nuevas?')) return;
-  closeDetail(); photos=[]; $('car').innerHTML='';
-  let bad=0;
+  if(!append&&photos.length&&!confirm('¿Empezar un trabajo nuevo? Se quitan las '+photos.length+' fotos actuales (las originales no se borran del teléfono).')) return;
+  closeDetail(); if(!append) photos=[];
+  const known=new Set(photos.map(p=>p.file.name+'|'+p.file.size+'|'+p.file.lastModified));
+  let bad=0, dup=0;
   for(let i=0;i<files.length;i++){
+    const f=files[i], key=f.name+'|'+f.size+'|'+f.lastModified;
+    if(known.has(key)){dup++;continue;} known.add(key);
     busy('Cargando foto '+(i+1)+' de '+files.length+'…'); await frame();
-    try{ const thumb=await toCanvas(files[i],THUMB_MAX); photos.push({file:files[i],thumb,inc:true,reg:null}); }
+    try{ const thumb=await toCanvas(f,THUMB_MAX); photos.push({file:f,thumb,inc:true,reg:null}); }
     catch(e){ bad++; }
   }
   busy();
   buildCarousel();
-  if(bad) toast(bad+' foto(s) no se pudieron abrir y se omitieron.',4000);
+  const msgs=[]; if(bad)msgs.push(bad+' no se pudieron abrir'); if(dup)msgs.push(dup+' ya estaban');
+  if(msgs.length) toast(msgs.join(' · ')+'.',4000);
+}
+['pick','add'].forEach(id=>{
+  const inp=$(id);
+  inp.addEventListener('change',()=>{const files=[...(inp.files||[])]; setTimeout(()=>{inp.value='';},0); loadFiles(files,id==='add');});
 });
 
 /* ---------- carrusel ---------- */
 function buildCarousel(){
   const car=$('car'); car.innerHTML='';
   $('empty').hidden=photos.length>0; car.hidden=!photos.length;
+  $('addBtn').hidden=!photos.length; $('pickBtn').firstChild.textContent=photos.length?'Nuevo':'Elegir fotos';
   photos.forEach((ph,i)=>{
     const el=document.createElement('div'); el.className='card';
     const cv=mk(1,1);
