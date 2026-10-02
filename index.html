@@ -40,6 +40,9 @@ body{background:var(--bg);color:var(--ink);font-family:Roboto,system-ui,-apple-s
 .car{position:absolute;inset:0;display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;padding:10px 11%;overscroll-behavior-x:contain}
 .card{position:relative;flex:none;touch-action:manipulation;width:100%;height:100%;scroll-snap-align:center;border-radius:12px;overflow:hidden;background:#000;border:3px solid transparent;user-select:none;-webkit-user-select:none}
 .card.off{opacity:.45}
+.card.act{border-color:var(--accent)}
+.lab{font-size:14px;font-weight:700;margin:0 0 8px;color:var(--muted)}
+.lab b{color:var(--ink)}
 .card canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .card .chk{position:absolute;left:8px;top:8px;z-index:2;display:flex;align-items:center;gap:6px;background:rgba(10,16,22,.75);color:#fff;padding:7px 11px;border-radius:999px;font-weight:600;font-size:14px;cursor:pointer}
 .card .chk input{width:22px;height:22px;accent-color:var(--accent);margin:0}
@@ -87,8 +90,9 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v3</span><span class="count" id="count"></span></div>
+    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v6</span><span class="count" id="count"></span></div>
     <label class="fbtn" id="addBtn" hidden>+ Agregar<input type="file" id="add" accept="image/*" multiple></label>
+    <button class="fbtn" id="clrBtn" hidden>Vaciar</button>
     <label class="fbtn main" id="pickBtn">Elegir fotos<input type="file" id="pick" accept="image/*" multiple></label>
   </div>
 
@@ -120,7 +124,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
       <button class="tab" role="tab" aria-selected="false" data-p="pA">Ajuste fino</button>
       <button class="tab" role="tab" aria-selected="false" data-p="pG">Guardar</button>
     </div>
-    <div class="pane" id="pF"><div class="chips" id="chips"></div><p class="note">El filtro se aplica igual a todas las fotos.</p></div>
+    <div class="pane" id="pF"><p class="lab" id="fLab"></p><div class="chips" id="chips"></div><button class="fbtn" id="bAll" style="width:100%;margin-top:10px">Usar el filtro de esta foto en todas</button><p class="note">Cada foto tiene su propio filtro y ajustes. Se ajusta la foto marcada en amarillo (o la que tengas abierta).</p></div>
     <div class="pane" id="pA" hidden></div>
     <div class="pane" id="pG" hidden>
       <p class="sum" id="sum"></p>
@@ -135,7 +139,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=3;
+const VERSION=6;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -159,7 +163,8 @@ const SL=[
 const TG=[{k:'doble',label:'Doble escala'},{k:'rojo',label:'Canal rojo'},{k:'inv',label:'Invertir'}];
 
 let photos=[];           // {file, thumb, inc, reg:{x,y,w,h} 0..1, el, cv, st, ck}
-let presetId='nitido', P={...PRESETS[0]};
+let def={id:'nitido',p:{...PRESETS[0]}};  // filtro para fotos nuevas
+let act=-1, presetId=def.id, P=def.p;   // P apunta a los ajustes de la foto activa
 let cur=-1, work=null, comp=null;
 
 const mk=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c;};
@@ -237,7 +242,7 @@ async function loadFiles(files,append){
     const f=files[i], key=f.name+'|'+f.size+'|'+f.lastModified;
     if(known.has(key)){dup++;continue;} known.add(key);
     busy('Cargando foto '+(i+1)+' de '+files.length+'…'); await frame();
-    try{ const thumb=await toCanvas(f,THUMB_MAX); photos.push({file:f,thumb,inc:true,reg:null}); }
+    try{ const thumb=await toCanvas(f,THUMB_MAX); photos.push({file:f,thumb,inc:true,reg:null,f:{id:def.id,p:{...def.p}}}); }
     catch(e){ bad++; }
   }
   busy();
@@ -254,7 +259,7 @@ async function loadFiles(files,append){
 function buildCarousel(){
   const car=$('car'); car.innerHTML='';
   $('empty').hidden=photos.length>0; car.hidden=!photos.length;
-  $('addBtn').hidden=!photos.length; $('pickBtn').firstChild.textContent=photos.length?'Nuevo':'Elegir fotos';
+  $('addBtn').hidden=!photos.length; $('clrBtn').hidden=!photos.length; $('pickBtn').hidden=!!photos.length;
   photos.forEach((ph,i)=>{
     const el=document.createElement('div'); el.className='card';
     const cv=mk(1,1);
@@ -274,11 +279,12 @@ function buildCarousel(){
     });
     refreshCard(i,true);
   });
+  setActive(photos.length?Math.min(Math.max(act,0),photos.length-1):-1);
   updateSummary();
 }
 function refreshCard(i,redraw){
   const ph=photos[i]; if(!ph||!ph.el) return;
-  if(redraw){const c=compose(ph.thumb,ph.reg,P); ph.cv.width=c.width; ph.cv.height=c.height; ph.cv.getContext('2d').drawImage(c,0,0);}
+  if(redraw){const c=compose(ph.thumb,ph.reg,ph.f.p); ph.cv.width=c.width; ph.cv.height=c.height; ph.cv.getContext('2d').drawImage(c,0,0);}
   ph.el.classList.toggle('off',!ph.inc);
   ph.st.className='st'+(ph.reg?' ok':''); ph.st.textContent=ph.reg?'✓ Recuadro':'Sin recuadro';
   ph.ck.checked=ph.inc;
@@ -293,7 +299,7 @@ async function openDetail(i){
   if(i<0||i>=photos.length) return;
   busy('Abriendo…'); await frame();
   try{ work=await toCanvas(photos[i].file,WORK_MAX); }catch(e){ busy(); toast('No se pudo abrir la foto'); return; }
-  cur=i; comp=compose(work,photos[i].reg,P);
+  cur=i; comp=compose(work,photos[i].reg,photos[i].f.p); setActive(i);
   V={z:1,px:0,py:0}; setEdit(false);
   det.hidden=false; busy(); sizeDet(); updDetUI();
   photos[i].el.scrollIntoView({inline:'center',block:'nearest'});
@@ -360,7 +366,7 @@ function endPtr(e){
     const r=normRect(drawRect); drawRect=null; gest=null;
     if(r.w<work.width/80||r.h<work.height/120){toast('Recuadro muy chico, vuelve a arrastrar');drawDet();return;}
     photos[cur].reg={x:r.x/work.width,y:r.y/work.height,w:r.w/work.width,h:r.h/work.height};
-    setEdit(false); comp=compose(work,photos[cur].reg,P); refreshCard(cur,true); updDetUI(); updateSummary();
+    setEdit(false); comp=compose(work,photos[cur].reg,photos[cur].f.p); refreshCard(cur,true); updDetUI(); updateSummary();
     return;
   }
   if(gest.t==='pinch'){if(ptrs.size===0)gest=null;return;}
@@ -385,20 +391,53 @@ $('dPrev').onclick=()=>go(-1);
 $('dNext').onclick=()=>go(1);
 $('dClose').onclick=closeDetail;
 $('dEdit').onclick=()=>{setEdit(!edit);drawRect=null;drawDet();};
-$('dClear').onclick=()=>{const ph=photos[cur];if(!ph.reg)return;ph.reg=null;comp=compose(work,null,P);refreshCard(cur,true);updDetUI();updateSummary();};
+$('dClear').onclick=()=>{const ph=photos[cur];if(!ph.reg)return;ph.reg=null;comp=compose(work,null,ph.f.p);refreshCard(cur,true);updDetUI();updateSummary();};
 $('dInc').onclick=()=>{const ph=photos[cur];ph.inc=!ph.inc;refreshCard(cur,false);updDetUI();updateSummary();};
 const bo=$('dOrig');
 bo.addEventListener('pointerdown',()=>{showOrig=true;drawDet();});
 ['pointerup','pointerleave','pointercancel'].forEach(ev=>bo.addEventListener(ev,()=>{if(showOrig){showOrig=false;drawDet();}}));
 
+/* ---------- foto activa ---------- */
+function bindActive(){
+  const f=(act>=0&&photos[act])?photos[act].f:def;
+  presetId=f.id; P=f.p;
+  const t=(act>=0&&photos[act])?('Ajustando: <b>Foto '+(act+1)+' de '+photos.length+'</b> · '+PRESETS.find(q=>q.id===f.id).name):'Elige fotos para ajustarlas';
+  $('fLab').innerHTML=t; const al=$('aLab'); if(al) al.innerHTML=t;
+}
+function setActive(i){
+  act=(i>=0&&i<photos.length)?i:-1;
+  photos.forEach((ph,k)=>{if(ph.el)ph.el.classList.toggle('act',k===act);});
+  bindActive(); buildChips(); buildSliders();
+}
+// en el carrusel, la foto activa es la que queda al centro
+let scT=0;
+$('car').addEventListener('scroll',()=>{clearTimeout(scT);scT=setTimeout(()=>{
+  const car=$('car'), mid=car.scrollLeft+car.clientWidth/2; let best=-1,bd=1e9;
+  photos.forEach((ph,k)=>{if(!ph.el)return;const c=ph.el.offsetLeft+ph.el.offsetWidth/2,d=Math.abs(c-mid);if(d<bd){bd=d;best=k;}});
+  if(best!==act&&det.hidden) setActive(best);
+},120);},{passive:true});
+$('bAll').onclick=()=>{
+  if(act<0||!photos[act]) return;
+  if(!confirm('¿Copiar el filtro y ajustes de la Foto '+(act+1)+' a todas las fotos?')) return;
+  const src=photos[act].f;
+  photos.forEach((ph,k)=>{ if(k!==act) ph.f={id:src.id,p:{...src.p}}; });
+  def={id:src.id,p:{...src.p}};
+  photos.forEach((_,k)=>refreshCard(k,true)); toast('Filtro copiado a todas');
+};
+$('clrBtn').onclick=()=>{
+  if(!photos.length) return;
+  if(!confirm('¿Quitar las '+photos.length+' fotos del área de trabajo? Las originales del teléfono NO se borran.')) return;
+  closeDetail(); photos=[]; buildCarousel(); setActive(-1); toast('Área de trabajo vacía');
+};
+
 /* ---------- filtros y ajuste ---------- */
 function buildChips(){
   const box=$('chips'); box.innerHTML='';
   PRESETS.forEach(pr=>{const b=document.createElement('button');b.className='chip'+(pr.id===presetId?' on':'');b.textContent=pr.name;
-    b.onclick=()=>{presetId=pr.id;P={...pr};buildChips();buildSliders();applyFilter();};box.appendChild(b);});
+    b.onclick=()=>{const f={id:pr.id,p:{...pr}}; if(act>=0&&photos[act]) photos[act].f=f; else def=f; bindActive(); buildChips();buildSliders();applyFilter();};box.appendChild(b);});
 }
 function buildSliders(){
-  const box=$('pA'); box.innerHTML='';
+  const box=$('pA'); box.innerHTML='<p class="lab" id="aLab"></p>';
   const t=document.createElement('div'); t.className='chips'; t.style.marginBottom='10px';
   TG.forEach(g=>{const b=document.createElement('button');b.className='chip'+(P[g.k]?' on':'');b.textContent=g.label;
     b.onclick=()=>{P[g.k]=!P[g.k];b.classList.toggle('on',!!P[g.k]);applyFilter();};t.appendChild(b);});
@@ -413,12 +452,13 @@ function buildSliders(){
   });
   const rb=document.createElement('button'); rb.className='fbtn'; rb.style.width='100%';
   rb.textContent='Regresar al filtro "'+PRESETS.find(p=>p.id===presetId).name+'"';
-  rb.onclick=()=>{P={...PRESETS.find(p=>p.id===presetId)};buildSliders();applyFilter();};
+  rb.onclick=()=>{const f={id:presetId,p:{...PRESETS.find(p=>p.id===presetId)}}; if(act>=0&&photos[act]) photos[act].f=f; else def=f; bindActive(); buildSliders();applyFilter();};
   box.appendChild(rb);
+  $('aLab').innerHTML=$('fLab').innerHTML;
 }
 let ad=0;
-function applyDetailOnly(){clearTimeout(ad);ad=setTimeout(()=>{if(work&&cur>=0){comp=compose(work,photos[cur].reg,P);drawDet();}},40);}
-function applyFilter(){applyDetailOnly();refreshAll();}
+function applyDetailOnly(){clearTimeout(ad);ad=setTimeout(()=>{if(work&&cur>=0){comp=compose(work,photos[cur].reg,photos[cur].f.p);drawDet();}},40);}
+function applyFilter(){applyDetailOnly(); if(act>=0){clearTimeout(rAll);rAll=setTimeout(()=>refreshCard(act,true),150);} updateSummary();}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(o=>{const on=o===t;o.setAttribute('aria-selected',on);$(o.dataset.p).hidden=!on;});
 });
@@ -427,7 +467,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 function updateSummary(){
   const inc=photos.filter(p=>p.inc), ready=inc.filter(p=>p.reg), noReg=inc.length-ready.length;
   $('count').textContent=photos.length?(photos.length+' fotos · '+ready.length+' listas'):'';
-  $('sum').innerHTML=photos.length?('<b>'+ready.length+'</b> foto(s) listas para guardar con el filtro <b>'+PRESETS.find(p=>p.id===presetId).name+'</b>.'):'Primero elige fotos.';
+  $('sum').innerHTML=photos.length?('<b>'+ready.length+'</b> foto(s) listas para guardar, cada una con su propio filtro.'):'Primero elige fotos.';
   $('bSave').disabled=!ready.length; $('bSave').textContent=ready.length?('Guardar '+ready.length+' foto'+(ready.length>1?'s':'')):'Guardar';
   const w=$('sWarn'); w.hidden=!noReg; w.textContent=noReg?(noReg+' foto(s) marcadas no tienen recuadro y no se guardarán. Ábrelas y dibuja el recuadro, o desmárcalas.'):'';
 }
@@ -475,7 +515,7 @@ $('bSave').onclick=async()=>{
     busy('Guardando foto '+(k+1)+' de '+list.length+'…'); await frame();
     try{
       const base=await toCanvas(ph.file,SAVE_MAX);
-      const out=compose(base,ph.reg,P);
+      const out=compose(base,ph.reg,ph.f.p);
       let blob=await toBlob(out); blob=await withExif(blob,ph.file);
       const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr_'+run+'_'+(k+1)+'.jpg';
       download(blob,nm); ok++;
@@ -486,7 +526,7 @@ $('bSave').onclick=async()=>{
   toast(ok+' foto(s) guardadas. Búscalas en Galería → álbum Download.',5000);
 };
 
-buildChips(); buildSliders(); updateSummary();
+bindActive(); buildChips(); buildSliders(); updateSummary();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
 })();
 </script>
