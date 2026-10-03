@@ -1,5 +1,5 @@
-// MjrFts v5 — al subir una versión nueva, cambia el número de CACHE
-const CACHE = 'mjrfts-v5';
+// MjrFts v7 — al subir una versión nueva, cambia el número de CACHE
+const CACHE = 'mjrfts-v7';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
