@@ -62,6 +62,19 @@ body{background:var(--bg);color:var(--ink);font-family:Roboto,system-ui,-apple-s
 .pill.on,.pill[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 .pill:disabled{opacity:.4}
 .pos{color:#fff;font-weight:700;font-size:15px;margin:0 auto}
+/* lectura */
+.lec{position:absolute;left:0;right:0;bottom:0;z-index:5;max-height:100%;overflow-y:auto;background:var(--surface);color:var(--ink);border-radius:16px 16px 0 0;padding:10px 12px 12px;box-shadow:0 -6px 24px rgba(0,0,0,.45);touch-action:manipulation}
+.lec #lTipos{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.lec #lTipos .chip{flex:none;padding:7px 11px}
+.lprev{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 0}
+.lprev .chip{padding:7px 11px}
+#lPrev{flex:1;text-align:center;background:#FFC400;color:#111;border:3px solid #111;border-radius:10px;font-weight:700;font-size:30px;line-height:1.2;padding:4px 16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#lPrev.vacio{background:transparent;color:var(--muted);border-style:dashed;border-color:var(--line);font-size:18px;padding:9px 16px}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.key{font:inherit;font-size:24px;font-weight:700;padding:7px 0;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.key:disabled{opacity:.3}
+.lacts{display:flex;gap:8px;margin-top:10px}
+.lacts .fbtn{flex:1}
 .msg{position:absolute;left:50%;top:56px;transform:translateX(-50%);background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:14px;padding:6px 12px;border-radius:8px;z-index:4;pointer-events:none;white-space:nowrap}
 /* panel */
 .panel{height:206px;flex:none;background:var(--surface);border-top:1px solid var(--line);display:flex;flex-direction:column}
@@ -116,8 +129,19 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
         <button class="pill" id="dPrev">◀</button>
         <button class="pill" id="dEdit" aria-pressed="false">Editar recuadro</button>
         <button class="pill" id="dClear">Quitar recuadro</button>
+        <button class="pill" id="dLec" aria-pressed="false">Lectura</button>
         <button class="pill" id="dOrig">Mantén: original</button>
         <button class="pill" id="dNext">▶</button>
+      </div>
+      <div class="lec" id="lec" hidden>
+        <div class="chips" id="lTipos"></div>
+        <div class="lprev"><span class="chips" id="lSub"></span><span id="lPrev"></span></div>
+        <div class="keys" id="lKeys"></div>
+        <div class="lacts">
+          <button class="fbtn" id="lDel">Quitar</button>
+          <button class="fbtn" id="lCan">Cancelar</button>
+          <button class="fbtn main" id="lOk">Listo</button>
+        </div>
       </div>
     </div>
   </div>
@@ -145,7 +169,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=7;
+const VERSION=8;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -168,10 +192,10 @@ const SL=[
 ];
 const TG=[{k:'doble',label:'Doble escala'},{k:'rojo',label:'Canal rojo'},{k:'inv',label:'Invertir'}];
 
-let photos=[];           // {file, thumb, inc, reg:{x,y,w,h} 0..1, el, cv, st, ck}
+let photos=[];           // {file, thumb, inc, reg:{x,y,w,h} 0..1, lec:{k,val}, el, cv, st, ck}
 let def={id:'nitido',p:{...PRESETS[0]}};  // filtro para fotos nuevas
 let act=-1, presetId=def.id, P=def.p;   // P apunta a los ajustes de la foto activa
-let cur=-1, work=null, comp=null;
+let cur=-1, work=null, comp=null, compBase=null;   // compBase: con filtro y sin etiqueta
 
 const mk=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c;};
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),ms||2800);}
@@ -237,6 +261,64 @@ function compose(base,reg,p){
   return out;
 }
 
+/* ---------- lectura (valor escrito sobre la foto) ---------- */
+// T: dígitos del cronómetro de derecha a izquierda → H:MM'SS"cc
+function fmtT(d){
+  d=d.padStart(7,'0');
+  return String(+d.slice(0,-6))+':'+d.slice(-6,-4)+"'"+d.slice(-4,-2)+'"'+d.slice(-2);
+}
+// Tipo de aparato de cada foto. sub: la opción que se elige con un toque (renglón de la MT-1, unidad del Hioki)
+const TIPOS=[
+  {k:'mt1',   name:'MT-1',            sub:['HL','LL'], fmt:(v,s)=>s+' '+v+' %', tag:(v,s)=>s+v+'pct'},
+  {k:'volt',  name:'Voltamperímetro', sub:['V','A'],   fmt:(v,s)=>v+' '+s,      tag:(v,s)=>v+s},
+  {k:'gancho',name:'De gancho',                        fmt:v=>v+' A',           tag:v=>v+'A'},
+  {k:'crono', name:'Cronómetro',                       fmt:fmtT,                tag:v=>'T'+fmtT(v).replace(/\D+/g,'-')}
+];
+const tipo=k=>TIPOS.find(t=>t.k===k)||TIPOS[0];
+const subOf=l=>{const t=tipo(l.k);return t.sub?(t.sub.includes(l.s)?l.s:t.sub[0]):'';};
+const lecText=l=>(l&&l.val)?tipo(l.k).fmt(l.val,subOf(l)):'';
+const lecTag=l=>tipo(l.k).tag(l.val,subOf(l));
+// Devuelve la foto con la etiqueta amarilla pegada al recuadro, del lado más cercano al centro
+// (la foto se vuelve a fotografiar desde la pantalla y la parte de arriba y de abajo se pierden).
+// Si no cabe ni arriba ni abajo, agrega una franja negra; _oy dice cuánto se recorrió la foto.
+function stamp(src,reg,lec){
+  const txt=lecText(lec); if(!reg||!txt) return src;
+  const W=src.width, H=src.height, m=Math.round(Math.min(W,H)*0.03);
+  const r={x:reg.x*W,y:reg.y*H,w:reg.w*W,h:reg.h*H};
+  const font=s=>'700 '+s+'px Roboto,"Segoe UI",Arial,sans-serif';
+  const t=mk(1,1).getContext('2d'); t.font=font(100); const tw=t.measureText(txt).width/100;
+  const fs0=Math.min(W*0.7/tw,H*0.065,W*0.16);
+  const size=fs=>{const pad=fs*0.3;return{fs,pad,bw:tw*fs+pad*2,bh:fs*1.2+pad*2};};
+  const cx=L=>Math.min(W-m-L.bw/2,Math.max(m+L.bw/2,r.x+r.w/2))-L.bw/2;
+  const place=L=>{
+    const gap=L.fs*0.35, up=r.y-gap-L.bh, dn=r.y+r.h+gap, c=[];
+    if(up>=m) c.push(up); if(dn+L.bh<=H-m) c.push(dn);
+    if(!c.length) return null;
+    c.sort((a,b)=>Math.abs(a+L.bh/2-H/2)-Math.abs(b+L.bh/2-H/2));
+    return {x:cx(L),y:c[0]};
+  };
+  let L=size(fs0), pos=place(L);
+  if(!pos){L=size(fs0*0.7);pos=place(L);}
+  let out, oy=0;
+  if(pos){ out=mk(W,H); out.getContext('2d').drawImage(src,0,0); }
+  else{
+    L=size(fs0); const band=Math.ceil(L.bh+m*2), top=r.y>H-r.y-r.h;
+    out=mk(W,H+band); const x=out.getContext('2d');
+    x.fillStyle='#000'; x.fillRect(0,0,W,H+band); oy=top?band:0; x.drawImage(src,0,oy);
+    pos={x:cx(L),y:top?m:H+m};
+  }
+  const x=out.getContext('2d'), rad=L.fs*0.22;
+  x.save(); x.beginPath();
+  if(x.roundRect) x.roundRect(pos.x,pos.y,L.bw,L.bh,rad); else x.rect(pos.x,pos.y,L.bw,L.bh);
+  x.shadowColor='rgba(0,0,0,.6)'; x.shadowBlur=L.fs*0.3; x.fillStyle='#FFC400'; x.fill();
+  x.shadowColor='transparent'; x.lineWidth=Math.max(2,L.fs*0.07); x.strokeStyle='#111'; x.stroke();
+  x.fillStyle='#111'; x.font=font(L.fs); x.textAlign='center'; x.textBaseline='middle';
+  x.fillText(txt,pos.x+L.bw/2,pos.y+L.bh/2+L.fs*0.04);
+  x.restore();
+  out._oy=oy;
+  return out;
+}
+
 /* ---------- elegir y agregar fotos ---------- */
 async function loadFiles(files,append){
   if(!files.length) return;
@@ -248,7 +330,7 @@ async function loadFiles(files,append){
     const f=files[i], key=f.name+'|'+f.size+'|'+f.lastModified;
     if(known.has(key)){dup++;continue;} known.add(key);
     busy('Cargando foto '+(i+1)+' de '+files.length+'…'); await frame();
-    try{ const thumb=await toCanvas(f,THUMB_MAX); photos.push({file:f,thumb,inc:true,reg:null,f:{id:def.id,p:{...def.p}}}); }
+    try{ const thumb=await toCanvas(f,THUMB_MAX); photos.push({file:f,thumb,inc:true,reg:null,lec:null,f:{id:def.id,p:{...def.p}}}); }
     catch(e){ bad++; }
   }
   busy();
@@ -290,9 +372,9 @@ function buildCarousel(){
 }
 function refreshCard(i,redraw){
   const ph=photos[i]; if(!ph||!ph.el) return;
-  if(redraw){const c=compose(ph.thumb,ph.reg,ph.f.p); ph.cv.width=c.width; ph.cv.height=c.height; ph.cv.getContext('2d').drawImage(c,0,0);}
+  if(redraw){const c=stamp(compose(ph.thumb,ph.reg,ph.f.p),ph.reg,ph.lec); ph.cv.width=c.width; ph.cv.height=c.height; ph.cv.getContext('2d').drawImage(c,0,0);}
   ph.el.classList.toggle('off',!ph.inc);
-  ph.st.className='st'+(ph.reg?' ok':''); ph.st.textContent=ph.reg?'✓ Recuadro':'Sin recuadro';
+  ph.st.className='st'+(ph.reg?' ok':''); ph.st.textContent=ph.reg?('✓ Recuadro'+(ph.lec?' · '+lecText(ph.lec):'')):'Sin recuadro';
   ph.ck.checked=ph.inc;
 }
 let rAll=0;
@@ -305,35 +387,39 @@ async function openDetail(i){
   if(i<0||i>=photos.length) return;
   busy('Abriendo…'); await frame();
   try{ work=await toCanvas(photos[i].file,WORK_MAX); }catch(e){ busy(); toast('No se pudo abrir la foto'); return; }
-  cur=i; comp=compose(work,photos[i].reg,photos[i].f.p); setActive(i);
+  closeLec(); cur=i; recomp(); setActive(i);
   V={z:1,px:0,py:0}; setEdit(false);
   det.hidden=false; busy(); sizeDet(); updDetUI();
   photos[i].el.scrollIntoView({inline:'center',block:'nearest'});
 }
-function closeDetail(){det.hidden=true;cur=-1;work=null;comp=null;setEdit(false);}
+function closeDetail(){closeLec();det.hidden=true;cur=-1;work=null;comp=null;compBase=null;setEdit(false);}
+function recomp(){const ph=photos[cur];compBase=compose(work,ph.reg,ph.f.p);comp=stamp(compBase,ph.reg,ph.lec);}
 function updDetUI(){
   const ph=photos[cur]; if(!ph) return;
   $('dPos').textContent=(cur+1)+' / '+photos.length;
   $('dInc').setAttribute('aria-pressed',ph.inc); $('dInc').textContent=ph.inc?'✓ Incluida':'Excluida';
   $('dPrev').disabled=cur===0; $('dNext').disabled=cur===photos.length-1;
   $('dClear').disabled=!ph.reg;
+  const dl=$('dLec'); dl.disabled=!ph.reg; dl.setAttribute('aria-pressed',!!ph.lec); dl.textContent=ph.lec?lecText(ph.lec):'Lectura';
   drawDet();
 }
-function setEdit(on){edit=on;$('dEdit').setAttribute('aria-pressed',on);$('dEdit').textContent=on?'Dibujando… (cancelar)':'Editar recuadro';$('dMsg').hidden=!on;}
+function setEdit(on){if(on)closeLec();edit=on;$('dEdit').setAttribute('aria-pressed',on);$('dEdit').textContent=on?'Dibujando… (cancelar)':'Editar recuadro';$('dMsg').hidden=!on;}
 function sizeDet(){const d=window.devicePixelRatio||1,r=det.getBoundingClientRect();dc.width=Math.max(1,Math.round(r.width*d));dc.height=Math.max(1,Math.round(r.height*d));drawDet();}
 new ResizeObserver(()=>{if(!det.hidden)sizeDet();}).observe($('stage'));
+// lo que se ve: la original, la foto sin etiqueta (al dibujar el recuadro) o la terminada
+const shown=()=>showOrig?work:(edit?compBase:comp)||work;
 function geom(){
-  const W=work.width,H=work.height, fit=Math.min(dc.width/W,dc.height/H), s=fit*V.z;
-  return {s,ox:(dc.width-W*s)/2+V.px,oy:(dc.height-H*s)/2+V.py,W,H};
+  const c=shown(), W=c.width,H=c.height, fit=Math.min(dc.width/W,dc.height/H), s=fit*V.z;
+  return {s,ox:(dc.width-W*s)/2+V.px,oy:(dc.height-H*s)/2+V.py,W,H,iy:c._oy||0};
 }
 function drawDet(){
   const x=dc.getContext('2d'); x.clearRect(0,0,dc.width,dc.height); if(!work) return;
   const g=geom(); x.imageSmoothingQuality='high';
-  x.drawImage(showOrig?work:comp,g.ox,g.oy,g.W*g.s,g.H*g.s);
+  x.drawImage(shown(),g.ox,g.oy,g.W*g.s,g.H*g.s);
   const dpr=window.devicePixelRatio||1, ph=photos[cur];
   let r=null;
   if(drawRect){r=normRect(drawRect);}
-  else if(ph.reg){r={x:ph.reg.x*g.W,y:ph.reg.y*g.H,w:ph.reg.w*g.W,h:ph.reg.h*g.H};}
+  else if(ph.reg){r={x:ph.reg.x*work.width,y:g.iy+ph.reg.y*work.height,w:ph.reg.w*work.width,h:ph.reg.h*work.height};}
   if(r){
     x.setLineDash(drawRect?[]:[6*dpr,5*dpr]); x.strokeStyle='#F2A900'; x.lineWidth=2*dpr;
     x.strokeRect(g.ox+r.x*g.s,g.oy+r.y*g.s,r.w*g.s,r.h*g.s); x.setLineDash([]);
@@ -372,7 +458,7 @@ function endPtr(e){
     const r=normRect(drawRect); drawRect=null; gest=null;
     if(r.w<work.width/80||r.h<work.height/120){toast('Recuadro muy chico, vuelve a arrastrar');drawDet();return;}
     photos[cur].reg={x:r.x/work.width,y:r.y/work.height,w:r.w/work.width,h:r.h/work.height};
-    setEdit(false); comp=compose(work,photos[cur].reg,photos[cur].f.p); refreshCard(cur,true); updDetUI(); updateSummary();
+    setEdit(false); recomp(); refreshCard(cur,true); updDetUI(); updateSummary();
     return;
   }
   if(gest.t==='pinch'){if(ptrs.size===0)gest=null;return;}
@@ -397,11 +483,61 @@ $('dPrev').onclick=()=>go(-1);
 $('dNext').onclick=()=>go(1);
 $('dClose').onclick=closeDetail;
 $('dEdit').onclick=()=>{setEdit(!edit);drawRect=null;drawDet();};
-$('dClear').onclick=()=>{const ph=photos[cur];if(!ph.reg)return;ph.reg=null;comp=compose(work,null,ph.f.p);refreshCard(cur,true);updDetUI();updateSummary();};
+$('dClear').onclick=()=>{const ph=photos[cur];if(!ph.reg)return;ph.reg=null;recomp();refreshCard(cur,true);updDetUI();updateSummary();};
 $('dInc').onclick=()=>{const ph=photos[cur];ph.inc=!ph.inc;refreshCard(cur,false);updDetUI();updateSummary();};
 const bo=$('dOrig');
 bo.addEventListener('pointerdown',()=>{showOrig=true;drawDet();});
 ['pointerup','pointerleave','pointercancel'].forEach(ev=>bo.addEventListener(ev,()=>{if(showOrig){showOrig=false;drawDet();}}));
+
+/* ---------- teclado de lectura ---------- */
+const lec=$('lec');
+let lecK='mt1', lecS='HL', lecV='', last={k:'mt1',s:'HL'};   // last: el último aparato usado, para la siguiente foto
+function openLec(){
+  const ph=photos[cur]; if(!ph||!ph.reg) return;
+  setEdit(false); const l=ph.lec||last; lecK=l.k; lecS=subOf(l); lecV=ph.lec?ph.lec.val:'';
+  lec.hidden=false; drawLec();
+}
+function closeLec(){lec.hidden=true;}
+function drawLec(){
+  const tb=$('lTipos'); tb.innerHTML='';
+  TIPOS.forEach(t=>{const b=document.createElement('button');b.className='chip'+(t.k===lecK?' on':'');b.textContent=t.name;
+    b.onclick=()=>{lecK=t.k;lecS=subOf({k:lecK,s:lecS});if(t.k==='crono')lecV=lecV.replace('.','');drawLec();};tb.appendChild(b);});
+  const sb=$('lSub'), sub=tipo(lecK).sub; sb.innerHTML=''; sb.hidden=!sub;
+  (sub||[]).forEach(o=>{const b=document.createElement('button');b.className='chip'+(o===lecS?' on':'');b.textContent=o;
+    b.onclick=()=>{lecS=o;drawLec();};sb.appendChild(b);});
+  const pv=$('lPrev'), txt=lecText({k:lecK,s:lecS,val:lecV});
+  pv.textContent=txt||'Escribe el valor'; pv.className=txt?'':'vacio';
+  $('lKeys').querySelector('[data-k="."]').disabled=lecK==='crono';
+  $('lOk').disabled=!lecV; $('lDel').disabled=!photos[cur].lec;
+}
+function lecKey(k){
+  if(k==='⌫') lecV=lecV.slice(0,-1);
+  else if(k==='.'){ if(lecK!=='crono'&&!lecV.includes('.')) lecV=(lecV||'0')+'.'; }
+  else if(lecV.length<(lecK==='crono'?7:8)) lecV+=k;
+  drawLec();
+}
+function setLec(l){
+  photos[cur].lec=l; if(l) last={k:l.k,s:l.s};
+  closeLec(); comp=stamp(compBase,photos[cur].reg,l); refreshCard(cur,true); updDetUI(); updateSummary();
+}
+['1','2','3','4','5','6','7','8','9','.','0','⌫'].forEach(k=>{
+  const b=document.createElement('button'); b.className='key'; b.textContent=k; b.dataset.k=k;
+  b.onclick=()=>lecKey(k); $('lKeys').appendChild(b);
+});
+$('dLec').onclick=()=>{if(lec.hidden)openLec();else closeLec();};
+$('lCan').onclick=closeLec;
+$('lDel').onclick=()=>setLec(null);
+$('lOk').onclick=()=>{if(lecV)setLec({k:lecK,s:lecS,val:lecV.replace(/\.$/,'')});};
+document.addEventListener('keydown',e=>{
+  if(lec.hidden) return;
+  if(/^[0-9]$/.test(e.key)) lecKey(e.key);
+  else if(e.key==='.'||e.key===',') lecKey('.');
+  else if(e.key==='Backspace') lecKey('⌫');
+  else if(e.key==='Enter') $('lOk').click();
+  else if(e.key==='Escape') closeLec();
+  else return;
+  e.preventDefault();
+});
 
 /* ---------- foto activa ---------- */
 function bindActive(){
@@ -463,7 +599,7 @@ function buildSliders(){
   $('aLab').innerHTML=$('fLab').innerHTML;
 }
 let ad=0;
-function applyDetailOnly(){clearTimeout(ad);ad=setTimeout(()=>{if(work&&cur>=0){comp=compose(work,photos[cur].reg,photos[cur].f.p);drawDet();}},40);}
+function applyDetailOnly(){clearTimeout(ad);ad=setTimeout(()=>{if(work&&cur>=0){recomp();drawDet();}},40);}
 function applyFilter(){applyDetailOnly(); if(act>=0){clearTimeout(rAll);rAll=setTimeout(()=>refreshCard(act,true),150);} updateSummary();}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(o=>{const on=o===t;o.setAttribute('aria-selected',on);$(o.dataset.p).hidden=!on;});
@@ -473,7 +609,8 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 function updateSummary(){
   const inc=photos.filter(p=>p.inc), ready=inc.filter(p=>p.reg), noReg=inc.length-ready.length;
   $('count').textContent=photos.length?(photos.length+' fotos · '+ready.length+' listas'):'';
-  $('sum').innerHTML=photos.length?('<b>'+ready.length+'</b> foto(s) listas para guardar, cada una con su propio filtro.'):'Primero elige fotos.';
+  const conLec=ready.filter(p=>p.lec).length;
+  $('sum').innerHTML=photos.length?('<b>'+ready.length+'</b> foto(s) listas para guardar, cada una con su propio filtro'+(conLec?(' · '+conLec+' con lectura'):'')+'.'):'Primero elige fotos.';
   $('bSave').disabled=!ready.length; $('bSave').textContent=ready.length?('Guardar '+ready.length+' foto'+(ready.length>1?'s':'')):'Guardar';
   const w=$('sWarn'); w.hidden=!noReg; w.textContent=noReg?(noReg+' foto(s) marcadas no tienen recuadro y no se guardarán. Ábrelas y dibuja el recuadro, o desmárcalas.'):'';
 }
@@ -539,9 +676,9 @@ $('bSave').onclick=async()=>{
     busy('Guardando foto '+(k+1)+' de '+list.length+'…'); await frame();
     try{
       const base=await toCanvas(ph.file,SAVE_MAX);
-      const out=compose(base,ph.reg,ph.f.p);
+      const out=stamp(compose(base,ph.reg,ph.f.p),ph.reg,ph.lec);
       let blob=await toBlob(out); blob=await withExif(blob,ph.file);
-      const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr_'+run+'_'+(k+1)+'.jpg';
+      const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr_'+run+'_'+(k+1)+(ph.lec?'_'+lecTag(ph.lec):'')+'.jpg';
       let enMotor=false;
       if(srvOk){ try{ await sendSrv(blob,nm); enMotor=true; }catch(e){ srvOk=false; } }
       if(enMotor){ cam++; } else { download(blob,nm); dl++; await sleep(700); }
