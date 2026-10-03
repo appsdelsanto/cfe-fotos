@@ -68,7 +68,7 @@ body{background:var(--bg);color:var(--ink);font-family:Roboto,system-ui,-apple-s
 .lec #lTipos .chip{flex:none;padding:7px 11px}
 .lprev{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 0}
 .lprev .chip{padding:7px 11px}
-#lPrev{flex:1;text-align:center;background:#FFC400;color:#111;border:3px solid #111;border-radius:10px;font-weight:700;font-size:30px;line-height:1.2;padding:4px 16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#lPrev{flex:1;text-align:center;background:rgba(255,196,0,.5);color:#111;border:3px solid #111;border-radius:10px;font-weight:700;font-size:30px;line-height:1.2;padding:4px 16px;font-variant-numeric:tabular-nums;white-space:nowrap}
 #lPrev.vacio{background:transparent;color:var(--muted);border-style:dashed;border-color:var(--line);font-size:18px;padding:9px 16px}
 .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
 .key{font:inherit;font-size:24px;font-weight:700;padding:7px 0;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
@@ -169,7 +169,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=8;
+const VERSION=9;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -287,7 +287,7 @@ function stamp(src,reg,lec){
   const r={x:reg.x*W,y:reg.y*H,w:reg.w*W,h:reg.h*H};
   const font=s=>'700 '+s+'px Roboto,"Segoe UI",Arial,sans-serif';
   const t=mk(1,1).getContext('2d'); t.font=font(100); const tw=t.measureText(txt).width/100;
-  const fs0=Math.min(W*0.7/tw,H*0.065,W*0.16);
+  const fs0=0.7*Math.min(W*0.7/tw,H*0.065,W*0.16);   // 30% más chica que la v8
   const size=fs=>{const pad=fs*0.3;return{fs,pad,bw:tw*fs+pad*2,bh:fs*1.2+pad*2};};
   const cx=L=>Math.min(W-m-L.bw/2,Math.max(m+L.bw/2,r.x+r.w/2))-L.bw/2;
   const place=L=>{
@@ -310,8 +310,8 @@ function stamp(src,reg,lec){
   const x=out.getContext('2d'), rad=L.fs*0.22;
   x.save(); x.beginPath();
   if(x.roundRect) x.roundRect(pos.x,pos.y,L.bw,L.bh,rad); else x.rect(pos.x,pos.y,L.bw,L.bh);
-  x.shadowColor='rgba(0,0,0,.6)'; x.shadowBlur=L.fs*0.3; x.fillStyle='#FFC400'; x.fill();
-  x.shadowColor='transparent'; x.lineWidth=Math.max(2,L.fs*0.07); x.strokeStyle='#111'; x.stroke();
+  x.fillStyle='rgba(255,196,0,.5)'; x.fill();   // amarillo al 50%: se alcanza a ver la foto debajo
+  x.lineWidth=Math.max(2,L.fs*0.07); x.strokeStyle='#111'; x.stroke();
   x.fillStyle='#111'; x.font=font(L.fs); x.textAlign='center'; x.textBaseline='middle';
   x.fillText(txt,pos.x+L.bw/2,pos.y+L.bh/2+L.fs*0.04);
   x.restore();
@@ -614,6 +614,24 @@ function updateSummary(){
   $('bSave').disabled=!ready.length; $('bSave').textContent=ready.length?('Guardar '+ready.length+' foto'+(ready.length>1?'s':'')):'Guardar';
   const w=$('sWarn'); w.hidden=!noReg; w.textContent=noReg?(noReg+' foto(s) marcadas no tienen recuadro y no se guardarán. Ábrelas y dibuja el recuadro, o desmárcalas.'):'';
 }
+// Fechas EXIF ("AAAA:MM:DD HH:MM:SS"). La copia lleva la fecha de la original menos 1 segundo,
+// para que en la galería quede pegada a su original y se distinga cuál es cuál.
+const z2=n=>String(n).padStart(2,'0');
+const exifDate=d=>d.getFullYear()+':'+z2(d.getMonth()+1)+':'+z2(d.getDate())+' '+z2(d.getHours())+':'+z2(d.getMinutes())+':'+z2(d.getSeconds());
+function menos1s(s){
+  const m=/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)$/.exec(s); if(!m) return null;
+  return exifDate(new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+m[6]-1));
+}
+// Para originales sin EXIF: uno mínimo con la fecha (DateTime, DateTimeOriginal, DateTimeDigitized)
+function buildExif(d){
+  const s=exifDate(d)+'\0', b=new Uint8Array(138), v=new DataView(b.buffer), T=10;
+  b.set([0xFF,0xE1,0,136,0x45,0x78,0x69,0x66,0,0]); b.set([0x49,0x49,0x2A,0,8,0,0,0],T);
+  const ent=(o,tag,type,cnt,val)=>{v.setUint16(T+o,tag,true);v.setUint16(T+o+2,type,true);v.setUint32(T+o+4,cnt,true);v.setUint32(T+o+8,val,true);};
+  v.setUint16(T+8,2,true);  ent(10,0x0132,2,20,68); ent(22,0x8769,4,1,38);
+  v.setUint16(T+38,2,true); ent(40,0x9003,2,20,88); ent(52,0x9004,2,20,108);
+  for(const o of [68,88,108]) for(let i=0;i<20;i++) b[T+o+i]=s.charCodeAt(i);
+  return b;
+}
 // Copia la información EXIF (fecha, GPS) de la original a la nueva, con orientación normal
 async function exifSeg(file){
   try{
@@ -628,8 +646,19 @@ async function exifSeg(file){
         const seg=b.slice(o,o+2+len), T=10, le=seg[T]===0x49;
         const r16=i=>le?seg[i]|(seg[i+1]<<8):(seg[i]<<8)|seg[i+1];
         const r32=i=>le?(seg[i]|(seg[i+1]<<8)|(seg[i+2]<<16))+seg[i+3]*16777216:seg[i]*16777216+((seg[i+1]<<16)|(seg[i+2]<<8)|seg[i+3]);
-        const ifd=T+r32(T+4), n=r16(ifd);
-        for(let k=0;k<n;k++){const e=ifd+2+12*k;if(r16(e)===0x0112){if(le){seg[e+8]=1;seg[e+9]=0;}else{seg[e+8]=0;seg[e+9]=1;}}}
+        const fecha=e=>{   // cambia en su lugar una fecha de 19 letras
+          if(r16(e+2)!==2||r32(e+4)<19) return;
+          const q=T+r32(e+8); if(q+19>seg.length) return;
+          const nd=menos1s(String.fromCharCode(...seg.slice(q,q+19)));
+          if(nd) for(let i=0;i<19;i++) seg[q+i]=nd.charCodeAt(i);
+        };
+        const ifd=T+r32(T+4), n=r16(ifd); let sub=0;
+        for(let k=0;k<n;k++){const e=ifd+2+12*k, tg=r16(e);
+          if(tg===0x0112){if(le){seg[e+8]=1;seg[e+9]=0;}else{seg[e+8]=0;seg[e+9]=1;}}
+          else if(tg===0x0132) fecha(e);
+          else if(tg===0x8769) sub=T+r32(e+8);}
+        if(sub&&sub+2<seg.length){const m=r16(sub);
+          for(let k=0;k<m;k++){const e=sub+2+12*k, tg=r16(e); if(e+12>seg.length) break; if(tg===0x9003||tg===0x9004) fecha(e);}}
         return seg;
       }
       o+=2+len;
@@ -638,7 +667,7 @@ async function exifSeg(file){
   return null;
 }
 async function withExif(blob,file){
-  const seg=await exifSeg(file); if(!seg) return blob;
+  const seg=(await exifSeg(file))||buildExif(new Date(file.lastModified-1000));
   const j=new Uint8Array(await blob.arrayBuffer());
   return new Blob([j.slice(0,2),seg,j.slice(2)],{type:'image/jpeg'});
 }
@@ -654,8 +683,9 @@ async function checkSrv(){
   el.textContent=srvOk?('● Motor conectado: se guarda en '+srvDest):'○ El motor no responde: se guardará en Descargas';
   return srvOk;
 }
-async function sendSrv(blob,name){
-  const r=await fetch(SRV+'/guardar?nombre='+encodeURIComponent(name),{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob});
+// fecha: milisegundos de la original menos 1 s, para que el motor ponga esa fecha al archivo
+async function sendSrv(blob,name,fecha){
+  const r=await fetch(SRV+'/guardar?nombre='+encodeURIComponent(name)+'&fecha='+fecha,{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob});
   const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'error'); return j.archivo;
 }
 $('bSrv').onclick=async()=>{const ok=await checkSrv();toast(ok?'Motor conectado':'El motor no responde. Enciéndelo con el botón Motor encender.',3500);};
@@ -680,7 +710,7 @@ $('bSave').onclick=async()=>{
       let blob=await toBlob(out); blob=await withExif(blob,ph.file);
       const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr_'+run+'_'+(k+1)+(ph.lec?'_'+lecTag(ph.lec):'')+'.jpg';
       let enMotor=false;
-      if(srvOk){ try{ await sendSrv(blob,nm); enMotor=true; }catch(e){ srvOk=false; } }
+      if(srvOk){ try{ await sendSrv(blob,nm,ph.file.lastModified-1000); enMotor=true; }catch(e){ srvOk=false; } }
       if(enMotor){ cam++; } else { download(blob,nm); dl++; await sleep(700); }
       ok++;
     }catch(e){}

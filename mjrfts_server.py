@@ -4,7 +4,7 @@
 # Solo escucha dentro del teléfono (127.0.0.1); nada sale a internet.
 import http.server, json, os, re, shutil, subprocess, urllib.parse
 
-VERSION = 1
+VERSION = 2
 PUERTO = 8765
 CAMARA = os.path.expanduser('~/storage/dcim/Camera')
 MAX_BYTES = 60_000_000
@@ -20,6 +20,17 @@ def avisar_galeria(ruta):
             subprocess.run(['am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
                             '-d', 'file://' + real], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
     except Exception:
+        pass
+
+
+def poner_fecha(ruta, fecha):
+    """Le pone al archivo la fecha que manda la app (la de la original menos 1 segundo),
+    para que en Mis Archivos la copia quede junto a su original."""
+    try:
+        t = int(fecha) / 1000
+        if t > 946684800:   # después del año 2000; si no, se deja la fecha de hoy
+            os.utime(ruta, (t, t))
+    except (ValueError, OSError):
         pass
 
 
@@ -78,6 +89,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         with open(temporal, 'wb') as f:
             f.write(datos)
         os.replace(temporal, ruta)
+        poner_fecha(ruta, q.get('fecha', [''])[0])
         avisar_galeria(ruta)
         print('  Guardada en Cámara:', os.path.basename(ruta), flush=True)
         self.responder(200, {'ok': True, 'archivo': os.path.basename(ruta)})
