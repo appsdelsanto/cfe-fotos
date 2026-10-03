@@ -75,6 +75,9 @@ input[type=range]{width:100%;height:30px;accent-color:var(--accent);margin:0}
 .sum{font-size:15px;margin:0 0 10px}
 .sum b{font-size:17px}
 .warn{color:#B06A00;font-size:14px;margin:6px 0 0}
+.srv{font-size:14px;font-weight:700;margin:0 0 8px;padding:7px 10px;border-radius:8px}
+.srv.on{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.srv.off{background:color-mix(in srgb,var(--accent) 20%,transparent);color:#9A5B00}
 .note{color:var(--muted);font-size:13px;margin:8px 0 0}
 button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-offset:2px}
 .busy{position:fixed;inset:0;background:rgba(10,16,22,.7);display:none;align-items:center;justify-content:center;z-index:9;color:#fff;font-size:18px;font-weight:600;text-align:center;padding:24px}
@@ -87,7 +90,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v3</span><span class="count" id="count"></span></div>
+    <div class="brand"><h1 class="cond">MjrFts</h1><span class="ver" id="ver">v5</span><span class="count" id="count"></span></div>
     <label class="fbtn" id="addBtn" hidden>+ Agregar<input type="file" id="add" accept="image/*" multiple></label>
     <label class="fbtn main" id="pickBtn">Elegir fotos<input type="file" id="pick" accept="image/*" multiple></label>
   </div>
@@ -123,10 +126,12 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
     <div class="pane" id="pF"><div class="chips" id="chips"></div><p class="note">El filtro se aplica igual a todas las fotos.</p></div>
     <div class="pane" id="pA" hidden></div>
     <div class="pane" id="pG" hidden>
+      <p class="srv off" id="srv">Termux: se revisa al guardar</p>
       <p class="sum" id="sum"></p>
       <button class="fbtn main" id="bSave" style="width:100%;padding:12px" disabled>Guardar</button>
       <p class="warn" id="sWarn" hidden></p>
-      <p class="note">Las fotos nuevas se guardan aparte, con "_mjr" en el nombre. Las originales no se tocan.</p>
+      <button class="fbtn" id="bSrv" style="width:100%;margin-top:8px">Revisar conexión con Termux</button>
+      <p class="note">Con Termux conectado, las fotos nuevas van directo a Cámara. Si no, a Descargas. Llevan "_mjr" en el nombre y las originales no se tocan.</p>
     </div>
   </div>
 </div>
@@ -135,7 +140,7 @@ button:focus-visible,.fbtn:focus-within{outline:3px solid var(--accent);outline-
 
 <script>
 (function(){
-const VERSION=3;
+const VERSION=5;
 document.getElementById('ver').textContent='v'+VERSION;
 
 const $=id=>document.getElementById(id);
@@ -459,6 +464,23 @@ async function withExif(blob,file){
   const j=new Uint8Array(await blob.arrayBuffer());
   return new Blob([j.slice(0,2),seg,j.slice(2)],{type:'image/jpeg'});
 }
+const SRV='http://127.0.0.1:8765';
+let srvOk=false;
+async function checkSrv(){
+  try{
+    const c=new AbortController(), t=setTimeout(()=>c.abort(),1800);
+    const r=await fetch(SRV+'/ping',{signal:c.signal,cache:'no-store'}); clearTimeout(t);
+    const j=await r.json(); srvOk=!!(j.ok&&j.camara);
+  }catch(e){ srvOk=false; }
+  const el=$('srv'); el.className='srv '+(srvOk?'on':'off');
+  el.textContent=srvOk?'● Termux conectado: se guarda directo en Cámara':'○ Termux no responde: se guardará en Descargas';
+  return srvOk;
+}
+async function sendSrv(blob,name){
+  const r=await fetch(SRV+'/guardar?nombre='+encodeURIComponent(name),{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'error'); return j.archivo;
+}
+$('bSrv').onclick=async()=>{const ok=await checkSrv();toast(ok?'Termux conectado':'Termux no responde. ¿Está corriendo el servidor?');};
 const toBlob=c=>new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(),'image/jpeg',0.92));
 function download(blob,name){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
@@ -466,7 +488,8 @@ function download(blob,name){
 }
 $('bSave').onclick=async()=>{
   const list=photos.filter(p=>p.inc&&p.reg); if(!list.length) return;
-  let ok=0;
+  let ok=0, cam=0, dl=0;
+  busy('Revisando Termux…'); await checkSrv();
   // sello de la guardada (díahoraminutosegundo) para que cada guardada tenga nombres nuevos
   const t=new Date(), z=n=>String(n).padStart(2,'0');
   const run=z(t.getDate())+z(t.getHours())+z(t.getMinutes())+z(t.getSeconds());
@@ -478,12 +501,15 @@ $('bSave').onclick=async()=>{
       const out=compose(base,ph.reg,P);
       let blob=await toBlob(out); blob=await withExif(blob,ph.file);
       const nm=(ph.file.name||('foto_'+(k+1))).replace(/\.[^.]+$/,'')+'_mjr_'+run+'_'+(k+1)+'.jpg';
-      download(blob,nm); ok++;
-      await sleep(700);
+      let enCam=false;
+      if(srvOk){ try{ await sendSrv(blob,nm); enCam=true; }catch(e){ srvOk=false; } }
+      if(enCam){ cam++; } else { download(blob,nm); dl++; await sleep(700); }
+      ok++;
     }catch(e){}
   }
-  busy();
-  toast(ok+' foto(s) guardadas. Búscalas en Galería → álbum Download.',5000);
+  busy(); checkSrv();
+  const partes=[]; if(cam)partes.push(cam+' en Cámara'); if(dl)partes.push(dl+' en Descargas');
+  toast(ok?('Guardadas: '+partes.join(' y ')+'.'):'No se pudo guardar ninguna foto.',5000);
 };
 
 buildChips(); buildSliders(); updateSummary();
